@@ -1,0 +1,219 @@
+---
+title: "assignment04"
+output: html_document
+---
+```{r,echo=FALSE}
+library(parallel)
+```
+
+##question 1
+```{r}
+fun1 <- function(mat) {
+  n <- nrow(mat)
+  ans <- double(n)
+  for (i in 1:n) {
+    ans[i] <- sum(mat[i, ])
+  }
+  ans
+}
+fun1alt <- function(mat) {
+  ans<-colSums(t(mat), dims = 1)
+  ans
+}
+# fun1alt <- function(mat) {
+#   cl <- makePSOCKcluster(2L)
+# 
+#   clusterExport(cl, varlist=c("mat"), envir = environment())
+# 
+#   ans <- parApply(
+#   cl     = cl,
+#   X      = mat,
+#   MARGIN = 1,
+#   FUN    = function(x) sum(x)
+#   )
+# 
+#   stopCluster(cl)
+# 
+#   ans
+# }
+
+```
+
+```{r}
+# Cumulative product by row
+fun2 <- function(mat) {
+  n <- nrow(mat)
+  k <- ncol(mat)
+  ans <- mat
+  for (i in 1:n) {
+    for (j in 2:k){
+      ans[i,j] <- mat[i, j] + ans[i, j - 1]
+    }
+  }
+  ans
+}
+# fun2alt <- function(mat) {
+#   cl <- makePSOCKcluster(2L)
+#   k <- ncol(mat)
+#   clusterExport(cl, varlist=c("mat","k"), envir = environment())
+#   
+#   ans <- parApply(
+#   cl     = cl,
+#   X      = mat,
+#   MARGIN = 1,
+#   FUN    = function(x) {
+#     ans<-x
+#     for(i in 2:k){
+#       ans[i]=ans[i]+ans[i-1]
+#     }
+#     ans
+#   }
+#   )
+# 
+#   stopCluster(cl)
+# 
+#   t(ans)
+# }
+fun2alt <- function(mat) {
+  n <- nrow(mat)
+  ans <- mat
+  for (i in 1:n) {
+    ans[i,]=cumsum(mat[i,])
+  }
+  ans
+}
+
+```
+
+```{r}
+# Use the data with this code
+set.seed(2315)
+dat <- matrix(rnorm(200 * 100), nrow = 200)
+
+# Test for the first
+microbenchmark::microbenchmark(
+  fun1(dat),
+  fun1alt(dat), unit = "relative", check = "equivalent"
+)
+
+# Test for the second
+microbenchmark::microbenchmark(
+  fun2(dat),
+  fun2alt(dat),
+  unit = "relative", check = "equivalent"
+)
+```
+
+##question 2
+
+```{r}
+sim_pi <- function(n = 1000, i = NULL) {
+  p <- matrix(runif(n*2), ncol = 2)
+  mean(rowSums(p^2) < 1) * 4
+}
+
+# Here is an example of the run
+# set.seed(156)
+# sim_pi(1000) # 3.132
+set.seed(1231)
+system.time({
+  ans <- unlist(lapply(1:4000, sim_pi, n = 10000))
+  print(mean(ans))
+})
+
+
+
+system.time({
+  cl <- makePSOCKcluster(2L)
+  clusterSetRNGStream(cl, 1231)
+  
+  ans <- unlist(parLapply(cl, 1:4000, sim_pi, n = 10000))
+  print(mean(ans))
+})
+
+```
+
+##SQL
+
+```{r}
+library(RSQLite)
+library(DBI)
+
+# Initialize a temporary in memory database
+con <- dbConnect(SQLite(), ":memory:")
+
+# Download tables
+film <- read.csv("https://raw.githubusercontent.com/ivanceras/sakila/master/csv-sakila-db/film.csv")
+film_category <- read.csv("https://raw.githubusercontent.com/ivanceras/sakila/master/csv-sakila-db/film_category.csv")
+category <- read.csv("https://raw.githubusercontent.com/ivanceras/sakila/master/csv-sakila-db/category.csv")
+
+# Copy data.frames to database
+dbWriteTable(con, "film", film)
+dbWriteTable(con, "film_category", film_category)
+dbWriteTable(con, "category", category)
+```
+
+
+#question 1
+
+```{sql, connection=con}
+SELECT rating, COUNT(*)
+FROM film
+GROUP BY rating
+```
+
+#question2
+
+```{sql, connection=con}
+SELECT rating, AVG(rental_rate) AS rental_rate,AVG(replacement_cost) AS replacement_cost
+FROM film
+GROUP BY rating
+```
+
+
+
+#question 3
+
+```{sql, connection=con}
+SELECT category_id, COUNT(*)
+FROM film_category
+INNER JOIN film
+ON film.film_id = film_category.film_id
+GROUP BY category_id
+
+```
+
+#question 4
+
+```{sql, connection=con}
+SELECT name AS category, COUNT(*) AS count
+FROM film
+INNER JOIN (
+category
+INNER JOIN film_category
+ON category.category_id = film_category.category_id) AS b
+ON film.film_id = b.film_id
+GROUP BY name
+ORDER BY count DESC
+
+```
+
+```{sql, connection=con}
+SELECT category, MAX(count)
+FROM(
+SELECT name AS category, COUNT(*) AS count
+FROM film
+INNER JOIN (
+category
+INNER JOIN film_category
+ON category.category_id = film_category.category_id) AS b
+ON film.film_id = b.film_id
+GROUP BY name
+ORDER BY count DESC
+)
+```
+
+```{r}
+# clean up
+dbDisconnect(con)
+```
